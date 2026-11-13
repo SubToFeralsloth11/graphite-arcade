@@ -357,6 +357,39 @@ main { flex: 1; width: 100%; max-width: 1100px; margin: 0 auto; padding: 8px 24p
 .confetti { position: fixed; pointer-events: none; z-index: 70; font-family: var(--script); font-size: 26px; font-weight: 700; animation: fall 1.4s ease-in forwards; }
 @keyframes fall { to { transform: translateY(70vh) rotate(260deg); opacity: 0; } }
 
+/* ---------- arcade (canvas games) ---------- */
+.ar-wrap { position: relative; width: 100%; max-width: 760px; padding: 6px; background: rgba(255,255,255,.35); }
+.ar-canvas { display: block; width: 100%; height: auto; touch-action: none; user-select: none; -webkit-user-select: none; border-radius: 6px; cursor: crosshair; }
+.ar-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(245,242,233,.72); cursor: pointer; z-index: 2; }
+.ar-overlay[hidden] { display: none; }
+.ar-card { padding: 18px 26px; text-align: center; display: flex; flex-direction: column; gap: 10px; align-items: center; max-width: 90%; background: var(--paper); }
+.ar-card p { margin: 0; }
+.ar-pads { display: none; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.ar-pad { min-width: 70px; min-height: 54px; font-size: 22px; touch-action: none; user-select: none; -webkit-user-select: none; }
+@media (pointer: coarse) { .ar-pads { display: flex; } }
+.ar-help { margin: 0; font-size: 16px; text-align: center; }
+
+/* idle factory */
+.idle-wrap { display: grid; grid-template-columns: 1fr 1.1fr; gap: 26px; align-items: start; }
+.idle-main { position: sticky; top: 12px; }
+.idle-pencil { background: none; border: 0; cursor: pointer; padding: 10px; border-radius: 50%; transition: transform .1s; }
+.idle-pencil:hover { transform: rotate(-4deg) scale(1.03); }
+.idle-pencil:active { transform: scale(.94); }
+.idle-pencil.wiggle { animation: idle-wig .25s; }
+@keyframes idle-wig { 30% { transform: rotate(8deg) scale(.95); } 70% { transform: rotate(-5deg); } }
+.idle-zone { position: absolute; inset: 0; pointer-events: none; }
+.idle-float { position: absolute; font-family: var(--script); font-weight: 700; font-size: 26px; white-space: nowrap; animation: idle-up .9s ease-out forwards; }
+@keyframes idle-up { to { transform: translateY(-70px) rotate(-6deg); opacity: 0; } }
+.idle-shop, .idle-ups { display: flex; flex-direction: column; gap: 10px; }
+.idle-item, .idle-up { text-align: left; padding: 10px 14px; cursor: pointer; background: rgba(255,255,255,.45); font: inherit; color: inherit; border: 0; }
+.idle-item:hover:not(.cant), .idle-up:hover:not(.cant) { background: var(--hatch), rgba(255,255,255,.5); }
+.idle-item.cant, .idle-up.cant { opacity: .5; cursor: not-allowed; }
+.idle-item.locked { opacity: .4; cursor: default; font-style: italic; }
+.idle-name { font-family: var(--script); font-size: 26px; font-weight: 700; display: flex; justify-content: space-between; line-height: 1.1; }
+.idle-own { font-size: 30px; }
+.idle-cost { font-size: 17px; }
+@media (max-width: 760px) { .idle-wrap { grid-template-columns: 1fr; } .idle-main { position: static; } }
+
 @media (max-width: 760px) {
   body { font-size: 17px; }
   .hero { grid-template-columns: 1fr; }
