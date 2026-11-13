@@ -86,6 +86,13 @@
   mute.addEventListener('click', () => { Sfx.toggle(); drawMute(); Sfx.tap(); });
 
   window.addEventListener('hashchange', route);
+  // Backspace must never navigate back; only edit text fields.
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'Backspace') return;
+    const t = e.target;
+    if (t.isContentEditable || t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && !/^(checkbox|radio|button|submit|range|color|file)$/.test(t.type))) return;
+    e.preventDefault();
+  }, { capture: true });
   window.addEventListener('activity', drawStreak);
   drawMute(); drawStreak(); route();
 })();
