@@ -32,12 +32,12 @@ Games.register({
       update(g, dt) {
         for (const k of g.pressed) if (DIRS[k]) g.queue.push(DIRS[k]);
         g.queue = g.queue.slice(-3);
-        const speed = Math.max(.055, .14 - g.eaten * .003);
+        const speed = g.speed = Math.max(.055, .14 - g.eaten * .003);
         g.step += dt;
         if (g.star && (g.star.t -= dt) <= 0) g.star = null;
         dust.update(dt);
         if (g.step < speed) return;
-        g.step = 0;
+        g.step = Math.min(g.step - speed, speed);
         while (g.queue.length) {
           const d = g.queue.shift();
           if (d[0] !== -g.dir[0] || d[1] !== -g.dir[1]) { if (d[0] !== g.dir[0] || d[1] !== g.dir[1]) { g.dir = d; break; } }
@@ -71,11 +71,19 @@ Games.register({
         P.circle(fx * C + 15, fy * C + 17 + bob, 9); P.line(fx * C + 15, fy * C + 8 + bob, fx * C + 18, fy * C + 3 + bob, { w: 1.8 });
         P.hatchCircle(fx * C + 15, fy * C + 17 + bob, 8, { a: .3, gap: 4 });
         if (g.star) { const s = g.star, a = s.t < 1.5 && Math.floor(g.t * 8) % 2 ? .3 : .9; P.text('★', s.c[0] * C + 15, s.c[1] * C + 16, { size: 30, a }); }
-        const pts = g.body.map(([x, y]) => [x * C + 15, y * C + 15]);
+        // Glide each segment from its previous cell to its current one so movement is continuous, not cell-to-cell jumps.
+        const f = g.speed ? clamp(g.step / g.speed, 0, 1) : 1;
+        const pts = g.body.map(([x, y], i) => {
+          const [px, py] = g.prev[Math.min(i, g.prev.length - 1)];
+          if (Math.abs(px - x) > 1 || Math.abs(py - y) > 1) return [x * C + 15, y * C + 15]; // wrapped across an edge
+          return [(px + (x - px) * f) * C + 15, (py + (y - py) * f) * C + 15];
+        });
+        ctx.lineCap = ctx.lineJoin = 'round';
         for (let i = pts.length - 1; i > 0; i--) {
           const a = pts[i], b = pts[i - 1];
-          if (Math.abs(a[0] - b[0]) > C || Math.abs(a[1] - b[1]) > C) continue;
-          P.line(a[0], a[1], b[0], b[1], { w: 18 - Math.min(8, i * .3), a: .75, r: .6 });
+          if (Math.abs(a[0] - b[0]) > C * 1.5 || Math.abs(a[1] - b[1]) > C * 1.5) continue;
+          ctx.lineWidth = 18 - Math.min(8, i * .3); ctx.strokeStyle = INK(.75);
+          ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
         }
         const [hx, hy] = pts[0];
         P.circle(hx, hy, 11, { w: 2.4 });
