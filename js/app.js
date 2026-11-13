@@ -5,7 +5,7 @@
   let ctrl = null;
 
   const GREETINGS = ['Sharpen your pencil.', 'Pick a page, any page.', 'Back for more doodles?', 'The margins are waiting.', 'Fresh paper, fresh games.'];
-  const GROUPS = [['arcade', 'Arcade games', 'proper games, drawn in the margins'], ['word', 'Word games', 'letters, guesses and a little bit of panic'], ['table', 'Notebook games', 'the stuff you drew in the back of class']];
+  const GROUPS = [['arcade', 'Arcade games', 'proper games, drawn in the margins'], ['button', 'Button & text games', 'tap, type, bluff and draw'], ['word', 'Word games', 'letters, guesses and a little bit of panic'], ['table', 'Notebook games', 'the stuff you drew in the back of class']];
 
   function cardStat(g) {
     const s = Stats.of(g.id);
