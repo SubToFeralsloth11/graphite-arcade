@@ -253,11 +253,11 @@ main { flex: 1; width: 100%; max-width: 1100px; margin: 0 auto; padding: 8px 24p
 /* ---------- dots & boxes ---------- */
 .dots-svg { width: min(520px, 100%); height: auto; display: block; margin: 0 auto; touch-action: manipulation; }
 .dots-svg .hit { stroke: transparent; stroke-width: 18; cursor: pointer; }
-.dots-svg .hit:hover + .ln.free { stroke: rgba(45,45,49,.3); }
+.dots-svg .hit:hover + .ln.free { stroke: rgba(45,45,49,.45); stroke-dasharray: none; }
 .dots-svg .ln { stroke-width: 4; stroke-linecap: round; fill: none; pointer-events: none; }
-.dots-svg .ln.free { stroke: transparent; }
-.dots-svg .ln.p0 { stroke: var(--lead); filter: url(#rough-line); }
-.dots-svg .ln.p1 { stroke: var(--lead-2); stroke-dasharray: 9 5; filter: url(#rough-line); }
+.dots-svg .ln.free { stroke: rgba(45,45,49,.14); stroke-width: 2; stroke-dasharray: 2 6; }
+.dots-svg .ln.p0 { stroke: #2d2d31; filter: url(#dl-rough); }
+.dots-svg .ln.p1 { stroke: #4f4f56; stroke-dasharray: 9 5; filter: url(#dl-rough); }
 .dots-svg .ln.last { stroke-width: 6; }
 .dots-svg .dot { fill: var(--lead); }
 

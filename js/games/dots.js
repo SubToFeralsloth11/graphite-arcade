@@ -46,7 +46,11 @@ Games.register({
           s += `<line class="hit" data-k="${k}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/><line class="ln ${o == null ? 'free' : 'p' + o}${k === last ? ' last' : ''}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
         }
         for (let r = 0; r <= N; r++) for (let c = 0; c <= N; c++) s += `<circle class="dot" cx="${PAD + c * G}" cy="${PAD + r * G}" r="4.5"/>`;
+        // Filters live in this SVG's own defs: some browsers drop strokes filtered via a filter in another (0-size) SVG.
         svg.innerHTML = `<defs>
+          <filter id="dl-rough" filterUnits="userSpaceOnUse" x="-20" y="-20" width="${W + 40}" height="${W + 40}">
+            <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="3" result="n"/>
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="3" xChannelSelector="R" yChannelSelector="G"/></filter>
           <pattern id="hp0" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#2d2d31" stroke-width="2.2" opacity=".55"/></pattern>
           <pattern id="hp1" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0 0 L8 8 M8 0 L0 8" stroke="#4f4f56" stroke-width="1.2" opacity=".5"/></pattern></defs>${s}`;
         P.forEach((p, i) => { p.classList.toggle('turn', i === turn); p.lastChild.textContent = score[i]; });
