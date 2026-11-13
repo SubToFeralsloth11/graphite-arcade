@@ -85,23 +85,36 @@ Games.register({
       respawn(g);
     }
 
+    // Collision against each tile's actual box: '#' fills the tile, '=' is the thin plank drawn at y+2..y+14.
+    const PLANK_TOP = 2, PLANK_H = 12;
+    function boxes(g, o) {
+      const out = [];
+      const c0 = Math.floor(o.x / T), c1 = Math.floor((o.x + o.w) / T), r0 = Math.floor(o.y / T), r1 = Math.floor((o.y + o.h) / T);
+      for (let c = c0; c <= c1; c++) for (let r = r0; r <= r1; r++) {
+        const ch = c < 0 || c >= g.L.len ? '#' : r < 0 || r >= ROWS ? ' ' : g.L.map[r][c];
+        if (ch === '#') out.push({ x: c * T, y: r * T, w: T, h: T });
+        else if (ch === '=') out.push({ x: c * T, y: r * T + PLANK_TOP, w: T, h: PLANK_H });
+      }
+      return out.filter(b => hit(o, b));
+    }
     function moveX(g, o, dx) {
       o.x += dx;
-      const top = o.y + 2, bot = o.y + o.h - 2;
-      for (const yy of [top, (top + bot) / 2, bot]) {
-        if (dx > 0 && solid(tileAt(g.L, o.x + o.w, yy))) { o.x = Math.floor((o.x + o.w) / T) * T - o.w - .01; return true; }
-        if (dx < 0 && solid(tileAt(g.L, o.x, yy))) { o.x = (Math.floor(o.x / T) + 1) * T + .01; return true; }
+      let hitAny = false;
+      for (const b of boxes(g, o)) {
+        if (dx > 0) o.x = Math.min(o.x, b.x - o.w - .01);
+        else if (dx < 0) o.x = Math.max(o.x, b.x + b.w + .01);
+        hitAny = true;
       }
-      return false;
+      return hitAny;
     }
     function moveY(g, o, dy) {
       o.y += dy;
-      const l = o.x + 2, r = o.x + o.w - 2;
-      for (const xx of [l, r]) {
-        if (dy > 0 && solid(tileAt(g.L, xx, o.y + o.h))) { o.y = Math.floor((o.y + o.h) / T) * T - o.h; return 1; }
-        if (dy < 0 && solid(tileAt(g.L, xx, o.y))) { o.y = (Math.floor(o.y / T) + 1) * T; return -1; }
+      let res = 0;
+      for (const b of boxes(g, o)) {
+        if (dy > 0) { o.y = Math.min(o.y, b.y - o.h); res = 1; }
+        else if (dy < 0) { o.y = Math.max(o.y, b.y + b.h); res = -1; }
       }
-      return 0;
+      return res;
     }
 
     Arcade.mount(root, signal, {
