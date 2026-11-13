@@ -269,8 +269,77 @@ main { flex: 1; width: 100%; max-width: 1100px; margin: 0 auto; padding: 8px 24p
 .mcard .back { background: var(--hatch-x), rgba(255,255,255,.45); }
 .mcard .front { transform: rotateY(180deg); background: rgba(255,255,255,.7); }
 .mcard .front svg { width: 70%; height: 70%; }
-.mcard.matched .front { background: var(--hatch), rgba(255,255,255,.7); }
-.mcard.matched { animation: none; opacity: .8; }
+.mcard.matched .front { background: rgba(45,45,49,.16); }
+.mcard.matched { animation: none; opacity: .5; cursor: default; }
+
+/* ---------- noughts & crosses ---------- */
+.ttt-grid { display: grid; grid-template-columns: repeat(3, 110px); grid-template-rows: repeat(3, 110px); }
+.ttt-cell { background: none; border: 0; padding: 8px; cursor: pointer; border-color: var(--lead); }
+.ttt-cell:nth-child(-n+6) { border-bottom: 3px solid var(--lead); }
+.ttt-cell:not(:nth-child(3n)) { border-right: 3px solid var(--lead); }
+.ttt-cell:disabled { cursor: default; color: inherit; }
+.ttt-cell:not(:disabled):hover { background: var(--hatch); }
+.ttt-cell.win { background: var(--hatch-x); }
+.ttt-cell svg { width: 100%; height: 100%; }
+.doodle.ink { stroke-width: 6; }
+.doodle.ink path { stroke-dasharray: 400; animation: redraw .45s ease both; }
+.doodle.ink path + path { animation-delay: .15s; }
+
+/* ---------- four in a row ---------- */
+.c4-grid { display: grid; grid-template-columns: repeat(7, 54px); gap: 6px; padding: 10px; cursor: pointer; }
+.c4-cell { width: 54px; height: 54px; border: 2px dashed rgba(45,45,49,.28); border-radius: 50%; display: grid; place-items: center; overflow: hidden; }
+.c4-cell.win { border: 3px solid var(--lead); }
+.c4-disc { width: 44px; height: 44px; border-radius: 50%; border: 2.5px solid var(--lead); display: inline-block; vertical-align: middle; }
+.c4-disc.p0 { background: var(--lead); }
+.c4-disc.p1 { background: var(--hatch-x), rgba(255,255,255,.6); }
+.c4-disc.fall { animation: c4-fall .35s cubic-bezier(.5,0,1,1); }
+.c4-key .c4-disc { width: 28px; height: 28px; }
+@keyframes c4-fall { from { transform: translateY(var(--from)); } }
+
+/* ---------- word search ---------- */
+.ws-wrap { display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: start; justify-content: center; }
+.ws-grid { display: grid; padding: 10px; user-select: none; touch-action: none; }
+.ws-cell { width: 40px; height: 40px; display: grid; place-items: center; font-family: var(--script); font-weight: 700; font-size: 28px; text-transform: uppercase; cursor: pointer; border-radius: 50%; }
+.ws-cell.found { background: rgba(45,45,49,.14); }
+.ws-cell.sel { box-shadow: inset 0 0 0 2px var(--lead); background: var(--hatch); }
+.ws-list { columns: 2 120px; list-style: none; padding: 0; margin: 10px 0 0; font-size: 21px; text-transform: lowercase; }
+.ws-list li.got { text-decoration: line-through; color: var(--soft); }
+
+/* ---------- letter grid ---------- */
+.bg-grid { display: grid; grid-template-columns: repeat(4, 64px); gap: 10px; padding: 14px; user-select: none; }
+.bg-tile { width: 64px; height: 64px; display: grid; place-items: center; font-family: var(--script); font-weight: 700; font-size: 38px; text-transform: uppercase; border: 2px solid var(--lead); border-radius: 6px 10px 5px 9px / 9px 5px 10px 6px; background: rgba(255,255,255,.5); cursor: pointer; }
+.bg-tile.on { background: var(--lead); color: var(--paper); }
+.hive-entry.bad { color: var(--soft); text-decoration: line-through; }
+
+/* ---------- battleships ---------- */
+.bs-wrap { display: flex; gap: 34px; flex-wrap: wrap; justify-content: center; }
+.bs-grid { display: grid; grid-template-columns: repeat(8, 36px); padding: 8px; background-image: linear-gradient(rgba(45,45,49,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(45,45,49,.12) 1px, transparent 1px); background-size: 36px 36px; background-position: 8px 8px; }
+.bs-cell { width: 36px; height: 36px; display: grid; place-items: center; position: relative; }
+.bs-cell.enemy { cursor: crosshair; }
+.bs-cell.enemy:not(.hit):not(.miss):hover { background: var(--hatch); }
+.bs-cell.ship { background: rgba(45,45,49,.22); box-shadow: inset 0 0 0 1.5px var(--lead); }
+.bs-cell.miss::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--soft); }
+.bs-cell.hit::after { content: "✕"; font-size: 26px; font-weight: 700; line-height: 1; }
+.bs-cell.sunk { background: var(--hatch-x), rgba(45,45,49,.3); }
+.who { font-size: 16px; color: var(--lead-2); }
+
+/* ---------- minefield ---------- */
+.mn-grid { display: grid; width: 100%; padding: 8px; gap: 2px; user-select: none; }
+.mn-cell { aspect-ratio: 1; display: grid; place-items: center; font-family: var(--script); font-weight: 700; font-size: 24px; cursor: pointer; background: var(--hatch), rgba(255,255,255,.5); border: 1.5px solid rgba(45,45,49,.55); border-radius: 3px 5px 2px 4px; }
+.mn-cell:hover:not(.open) { background: rgba(45,45,49,.12); }
+.mn-cell.open { background: rgba(255,255,255,.35); border-color: rgba(45,45,49,.18); cursor: default; }
+.mn-cell[data-n="1"] { color: var(--soft); }
+.mn-cell[data-n="3"], .mn-cell[data-n="4"], .mn-cell[data-n="5"] { text-decoration: underline; }
+.mn-cell.flag { font-family: var(--hand); }
+.mn-cell.mine { font-size: 20px; }
+.mn-cell.boom { background: var(--lead); color: var(--paper); }
+.mn-cell.wrong { text-decoration: line-through; color: var(--soft); }
+
+/* ---------- word chain ---------- */
+.wc-trail { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 640px; }
+.wc-link { padding: 2px 14px; font-size: 20px; }
+.wc-link.p1 { background: var(--hatch), rgba(255,255,255,.4); }
+.wc-link:first-child { animation: pop .3s; }
 
 /* ---------- modal & toast ---------- */
 .modal-bg { position: fixed; inset: 0; background: rgba(245,242,233,.75); backdrop-filter: blur(2px); display: grid; place-items: center; z-index: 50; animation: fade .2s; }
@@ -292,7 +361,12 @@ main { flex: 1; width: 100%; max-width: 1100px; margin: 0 auto; padding: 8px 24p
   body { font-size: 17px; }
   .hero { grid-template-columns: 1fr; }
   .hero h1 { font-size: 48px; }
-  .hang-wrap, .hive-wrap { grid-template-columns: 1fr; }
+  .hang-wrap, .hive-wrap, .ws-wrap { grid-template-columns: 1fr; }
+  .ws-cell { width: 30px; height: 30px; font-size: 22px; }
+  .c4-grid { grid-template-columns: repeat(7, 40px); }
+  .c4-cell { width: 40px; height: 40px; }
+  .c4-cell .c4-disc { width: 32px; height: 32px; }
+  .ttt-grid { grid-template-columns: repeat(3, 90px); grid-template-rows: repeat(3, 90px); }
   .hang-svg { max-width: 220px; margin: 0 auto; display: block; }
   .tile { width: 50px; height: 50px; font-size: 32px; }
   .wordle-row { grid-template-columns: repeat(5, 50px); }
