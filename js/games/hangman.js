@@ -3,14 +3,14 @@ Games.register({
   title: 'Hangman',
   blurb: 'Guess letters before the doodle is finished. Or make the bot guess yours.',
   group: 'word',
-  tags: ['vs bot', 'bot guesses', '2P'],
+  tags: ['vs bot', 'bot guesses', '2P', 'online'],
   icon: `<svg viewBox="0 0 120 80" class="doodle"><path d="M10 74 h46 M22 74 V8 h40 v10"/><circle cx="62" cy="26" r="8"/><path d="M62 34 v20 M62 40 l-9 8 M62 40 l9 8 M62 54 l-8 12 M62 54 l8 12"/><path d="M84 66 h8 M96 66 h8 M108 66 h8" opacity=".6"/></svg>`,
-  help: 'Vs Bot: the bot picks a word, you guess letters. Bot Guesses: think of a word, tell the bot its length, then click every blank where its guessed letter appears (or "Not in my word"). Pass & Play: a friend types a secret word for you. Eight wrong guesses and the doodle is done.',
+  help: 'Vs Bot: the bot picks a word, you guess letters. Bot Guesses: think of a word, tell the bot its length, then click every blank where its guessed letter appears (or "Not in my word"). Pass & Play: a friend types a secret word for you. Online: one of you types a secret word on your own device, the other guesses on theirs while the setter watches; roles swap every round. Eight wrong guesses and the doodle is done.',
   mount(root, signal) {
     const MAX = 8;
-    let mode = 'solo', keyHandler = null;
+    let mode = 'solo', keyHandler = null, link = null, rnd = 0, tally = [0, 0];
     const stage = el('div', { class: 'stage' });
-    root.append(el('div', { class: 'center' }, tabs([['solo', 'Vs Bot'], ['reverse', 'Bot Guesses'], ['duel', 'Pass & Play']], mode, m => { mode = m; start(); })), stage);
+    root.append(el('div', { class: 'center' }, tabs([['solo', 'Vs Bot'], ['reverse', 'Bot Guesses'], ['duel', 'Pass & Play'], ['online', 'Online']], mode, m => { mode = m; if (link) { link.close(); link = null; } start(); })), stage);
     onKeys(signal, k => keyHandler && keyHandler(k));
 
     const drawing = () => {
@@ -26,18 +26,50 @@ Games.register({
 
     function start() {
       keyHandler = null;
+      if (mode === 'online' && !link?.open) {
+        return Net.lobby(stage, 'hangman', signal, l => { link = l; rnd = 0; tally = [0, 0]; link.onClose = () => { link = null; start(); }; start(); });
+      }
       if (mode === 'solo') guessGame(pick(LISTS.long.concat(LISTS.five)), 'bot');
       else if (mode === 'duel') secretPrompt(stage, { title: 'Player 1: secret word', minLen: 3, maxLen: 12, onDone: w => guessGame(w, 'friend') });
+      else if (mode === 'online') onlineRound();
       else reverseSetup();
     }
 
-    /* --- human guesses --- */
-    function guessGame(word, who) {
+    /* --- online: setter types a word on their device, guesser plays on theirs; roles swap --- */
+    function onlineRound() {
+      const setter = rnd++ % 2; // host sets first
+      if (setter !== link.me) {
+        stage.replaceChildren(el('div', { class: 'panel sk center', style: 'max-width:440px;margin:0 auto' },
+          el('div', { class: 'big' }, 'Your turn to guess'), el('p', { class: 'muted' }, 'Your friend is picking a secret word...')));
+        link.on('secret', w => guessGame(w, 'friend', 'guess'));
+        return;
+      }
+      link.on('secret', null);
+      const input = el('input', { class: 'input', autocomplete: 'off', spellcheck: 'false', placeholder: 'secret word', maxlength: 12 });
+      const submit = () => {
+        const w = input.value.trim().toLowerCase();
+        if (!/^[a-z]+$/.test(w)) return toast('Letters only');
+        if (w.length < 3 || w.length > 12) return toast('Between 3 and 12 letters');
+        if (!Dict.has(w)) return toast("That's not in my dictionary");
+        Sfx.scratch();
+        guessGame(w, 'friend', 'watch');
+        link.send('secret', w);
+      };
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+      stage.replaceChildren(el('div', { class: 'panel sk center', style: 'max-width:440px;margin:0 auto' },
+        el('div', { class: 'big' }, 'Pick a secret word'),
+        el('p', { class: 'muted', style: 'margin:0' }, 'Your friend guesses it on their device while you watch.'),
+        input, el('button', { class: 'btn btn-primary', onclick: submit }, 'Lock it in')));
+      setTimeout(() => input.focus(), 50);
+    }
+
+    /* --- human guesses (role: undefined offline, 'guess' or 'watch' online) --- */
+    function guessGame(word, who, role) {
       const guessed = new Set();
       let wrong = 0, done = false;
       const pic = drawing();
       const slots = el('div', { class: 'slots' }, [...word].map(() => el('div', { class: 'slot' })));
-      const info = el('div', { class: 'msg' }, `${who === 'bot' ? 'The bot' : 'Your friend'} picked a ${word.length}-letter word.`);
+      const info = el('div', { class: 'msg' }, role === 'watch' ? `Your friend is guessing ${word.toUpperCase()}...` : `${who === 'bot' ? 'The bot' : 'Your friend'} picked a ${word.length}-letter word.`);
       const lives = el('div', { class: 'muted', style: 'text-align:center' });
       const kb = keyboard(k => keyHandler(k), { enter: false });
       const sync = () => {
@@ -48,7 +80,12 @@ Games.register({
       stage.replaceChildren(el('div', { class: 'hang-wrap' }, el('div', { class: 'panel sk' }, pic.el), el('div', {}, info, slots, lives, el('br'), kb.el)));
       sync();
       keyHandler = k => {
-        if (done || !/^[a-z]$/.test(k) || guessed.has(k)) return;
+        if (role === 'watch' || done || !/^[a-z]$/.test(k) || guessed.has(k)) return;
+        if (role) link.send('letter', k);
+        guess(k);
+      };
+      if (role === 'watch') link.on('letter', k => { if (!done && /^[a-z]$/.test(k) && !guessed.has(k)) guess(k); });
+      function guess(k) {
         guessed.add(k);
         if (word.includes(k)) { kb.mark(k, 'correct'); Sfx.good(); } else { kb.mark(k, 'absent'); wrong++; Sfx.scratch(); }
         sync();
@@ -56,13 +93,26 @@ Games.register({
         if (won || wrong >= MAX) {
           done = true;
           if (!won) [...slots.children].forEach((s, i) => { if (!guessed.has(word[i])) { s.textContent = word[i]; s.classList.add('miss'); } });
+          if (role) {
+            const iWon = role === 'guess' ? won : !won;
+            tally[iWon ? link.me : 1 - link.me]++;
+            Stats.record('hangman', { win: iWon });
+            iWon ? (Sfx.win(), celebrate()) : Sfx.lose();
+            const title = role === 'guess' ? (won ? 'Saved him!' : 'Doodle complete') : (won ? 'They got it' : 'You stumped them!');
+            info.textContent = title;
+            setTimeout(() => !signal.aborted && link?.open && modal(title, el('div', {},
+              el('p', {}, won ? `Solved with ${MAX - wrong} guesses to spare. ` : 'Not solved. ', 'The word was ', el('b', {}, word.toUpperCase())),
+              el('p', {}, `Score: You ${tally[link.me]} – Friend ${tally[1 - link.me]}`)), [{ label: 'Next round', primary: true }])
+              .then(() => { if (link?.open) { info.textContent = 'Waiting for your friend...'; link.ready(start); } }), 700);
+            return;
+          }
           const st = Stats.record('hangman', { win: won });
           won ? (Sfx.win(), celebrate()) : Sfx.lose();
           setTimeout(() => modal(won ? 'Saved him!' : 'Doodle complete', el('div', {},
             el('p', {}, won ? `You got it with ${MAX - wrong} guesses to spare.` : 'The word was ', won ? null : el('b', {}, word.toUpperCase())), statRow(st)),
             [{ label: 'Play again', primary: true }]).then(v => v && start()), 700);
         }
-      };
+      }
     }
 
     /* --- bot guesses --- */
