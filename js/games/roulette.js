@@ -3,9 +3,9 @@ Games.register({
   title: 'Paper Roulette',
   blurb: 'A spitball tube loaded with ink blots and blank wads. Aim at the Examiner, or at yourself. Three rounds. No resits.',
   group: 'button',
-  tags: ['vs bot', '2P', 'strategy', 'tense'],
+  tags: ['vs bot', '2P', 'strategy', 'tense', 'online'],
   icon: `<svg viewBox="0 0 120 80" class="doodle"><path d="M14 46 L84 30 L88 46 L18 62 Z"/><path d="M84 30 l14 -4 l3 14 l-13 6"/><circle cx="104" cy="56" r="6" class="hatch"/><path d="M30 20 c6 -8 14 -8 18 0" opacity=".6"/><circle cx="96" cy="16" r="3" class="fill"/></svg>`,
-  help: 'The tube is loaded with a known number of ink blots (live) and blank wads, in a hidden order. On your turn flick the next one at your opponent or at yourself. Ink costs the target one page (life). Flick a blank at yourself and you keep the turn; otherwise the turn passes. Each load hands out stationery items that bend the rules (tap one to use it, as many as you like before flicking). Lose all your pages and you are out. Win three rounds against the Examiner to pass, each round with more pages, more blots and more items. Pass & Play pits two people against each other with the same rules.',
+  help: 'The tube is loaded with a known number of ink blots (live) and blank wads, in a hidden order. On your turn flick the next one at your opponent or at yourself. Ink costs the target one page (life). Flick a blank at yourself and you keep the turn; otherwise the turn passes. Each load hands out stationery items that bend the rules (tap one to use it, as many as you like before flicking). Lose all your pages and you are out. Win three rounds against the Examiner to pass, each round with more pages, more blots and more items. Pass & Play pits two people against each other with the same rules. Online does the same against a friend on another device; what your magnifier or note reveals stays on your screen.',
   mount(root, signal) {
     const ITEMS = {
       lens: { name: 'Magnifier', icon: '🔍', desc: 'Peek at the next wad.' },
@@ -17,12 +17,20 @@ Games.register({
       note: { name: "Note from Mum", icon: '✉', desc: 'Reveals one random later wad.' },
     };
     const ROUNDS = [{ hp: 2, items: 0 }, { hp: 4, items: 2 }, { hp: 6, items: 4 }];
-    let mode = 'bot';
+    let mode = 'bot', link = null, games = 0;
     const stage = el('div', { class: 'stage' });
-    root.append(el('div', { class: 'center' }, tabs([['bot', 'Vs Examiner'], ['duel', 'Pass & Play']], mode, m => { mode = m; game(); })), stage);
+    root.append(el('div', { class: 'center' }, tabs([['bot', 'Vs Examiner'], ['duel', 'Pass & Play'], ['online', 'Online']], mode, m => { mode = m; if (link) { link.close(); link = null; } game(); })), stage);
 
     function game() {
-      const names = mode === 'bot' ? ['The Student (you)', 'The Examiner'] : ['Player 1', 'Player 2'];
+      if (mode === 'online' && !link?.open) {
+        return Net.lobby(stage, 'roulette', signal, l => { link = l; games = 0; link.onClose = () => { link = null; game(); }; game(); });
+      }
+      const online = mode === 'online', me = online ? link.me : 0;
+      // Online: both sides load tubes and items from the same seeded stream, in the same order.
+      const rng = online ? seeded(link.seed + games++) : Math.random;
+      const rnd = n => Math.floor(rng() * n);
+      const queue = []; // friend's actions that arrived while an animation was still running here
+      const names = mode === 'bot' ? ['The Student (you)', 'The Examiner'] : online ? (me === 0 ? ['You', 'Friend'] : ['Friend', 'You']) : ['Player 1', 'Player 2'];
       let roundIx = 0, wins = [0, 0];
       const top = el('div', { class: 'scoreboard' });
       const tube = el('div', { class: 'row', style: 'gap:6px;min-height:40px;justify-content:center' });
@@ -44,12 +52,12 @@ Games.register({
       }
       function load() {
         const R = ROUNDS[roundIx];
-        const n = 2 + rand(3 + roundIx * 2);
-        const live = Math.max(1, Math.min(n - 1, Math.round(n / 2 + (Math.random() - .5) * 2)));
-        S.shells = shuffle([...Array(live).fill(1), ...Array(n - live).fill(0)]);
+        const n = 2 + rnd(3 + roundIx * 2);
+        const live = Math.max(1, Math.min(n - 1, Math.round(n / 2 + (rng() - .5) * 2)));
+        S.shells = shuffle([...Array(live).fill(1), ...Array(n - live).fill(0)], rng);
         S.known = [{}, {}];
         S.reveal = { live, blank: n - live };
-        for (let p = 0; p < 2; p++) for (let k = 0; k < R.items && S.inv[p].length < 8; k++) S.inv[p].push(pick(Object.keys(ITEMS)));
+        for (let p = 0; p < 2; p++) for (let k = 0; k < R.items && S.inv[p].length < 8; k++) S.inv[p].push(pick(Object.keys(ITEMS), rng));
         say(`Loading the tube: ${live} ink blot${live > 1 ? 's' : ''}, ${n - live} blank${n - live === 1 ? '' : 's'}.${R.items ? ` Everyone gets ${R.items} item${R.items > 1 ? 's' : ''}.` : ''}`, 'muted');
         Sfx.scratch();
       }
@@ -61,31 +69,51 @@ Games.register({
           el('div', { class: 'who' }, n + (S.skip[i] ? ' (clipped)' : '')),
           el('div', { class: 'pts', style: 'font-size:28px;letter-spacing:2px' }, '▯'.repeat(S.hp[i]) + '·'.repeat(S.max - S.hp[i])),
           el('div', { class: 'muted', style: 'font-size:14px' }, `rounds won ${wins[i]}`))));
-        const me = mode === 'bot' ? 0 : S.turn;
+        const viewer = mode === 'duel' ? S.turn : me;
         const r = remaining();
         tube.replaceChildren(el('span', { class: 'muted' }, `tube: ${r.live} ink · ${r.blank} blank`),
-          ...S.shells.map((x, i) => el('span', { class: 'bt-slot', style: 'width:28px;height:28px;font-size:16px' }, S.known[me][i] == null ? '?' : S.known[me][i] ? '●' : '○')),
+          ...S.shells.map((x, i) => el('span', { class: 'bt-slot', style: 'width:28px;height:28px;font-size:16px' }, S.known[viewer][i] == null ? '?' : S.known[viewer][i] ? '●' : '○')),
           S.fold ? el('span', { class: 'chip' }, 'double fold!') : null);
         items.forEach((box, p) => {
-          const mine = mode === 'duel' ? p === S.turn : p === 0;
+          const mine = mode === 'duel' ? p === S.turn : p === me;
           box.replaceChildren(el('span', { class: 'muted', style: 'min-width:120px' }, `${names[p]}'s pencil case:`),
-            ...(S.inv[p].length ? S.inv[p].map((it, k) => el('button', { class: 'btn btn-ghost', title: ITEMS[it].desc, disabled: !mine || !canAct(p), onclick: () => useItem(p, k) }, `${ITEMS[it].icon} ${ITEMS[it].name}`)) : [el('span', { class: 'muted' }, 'empty')]));
+            ...(S.inv[p].length ? S.inv[p].map((it, k) => el('button', { class: 'btn btn-ghost', title: ITEMS[it].desc, disabled: !mine || !canAct(p), onclick: () => { if (useItem(p, k) && online) link.send('item', k); } }, `${ITEMS[it].icon} ${ITEMS[it].name}`)) : [el('span', { class: 'muted' }, 'empty')]));
         });
         const p = S.turn, other = 1 - p;
         acts.replaceChildren(...(S.over ? [] : [
-          el('button', { class: 'btn btn-primary', disabled: !canAct(p) || !human(p), onclick: () => fire(p, other) }, `Flick at ${mode === 'bot' && other === 1 ? 'the Examiner' : names[other]}`),
-          el('button', { class: 'btn', disabled: !canAct(p) || !human(p), onclick: () => fire(p, p) }, 'Flick at yourself')]));
+          el('button', { class: 'btn btn-primary', disabled: !canAct(p) || !human(p), onclick: () => act(p, other) }, `Flick at ${mode === 'bot' && other === 1 ? 'the Examiner' : names[other]}`),
+          el('button', { class: 'btn', disabled: !canAct(p) || !human(p), onclick: () => act(p, p) }, 'Flick at yourself')]));
       }
-      const human = p => mode === 'duel' || p === 0;
+      const human = p => mode === 'duel' || p === me;
       const canAct = p => !S.busy && !S.over && S.turn === p && S.shells.length > 0;
 
-      async function useItem(p, k, fromBot) {
-        if (!fromBot && !canAct(p)) return;
+      function act(p, target) {
+        if (!canAct(p) || !human(p)) return;
+        if (online) link.send('fire', target);
+        fire(p, target);
+      }
+      /** Apply queued friend actions in order, once nothing is animating. */
+      function pump() {
+        while (queue.length && !S.busy && !S.over && S.turn === 1 - me && S.shells.length) {
+          const a = queue.shift();
+          if (a.t === 'item') useItem(S.turn, a.d, true);
+          else { fire(S.turn, a.d); return; }
+        }
+      }
+      if (online) {
+        link.on('item', k => { queue.push({ t: 'item', d: k }); pump(); });
+        link.on('fire', t => { queue.push({ t: 'fire', d: t }); pump(); });
+      }
+
+      /** Returns true if the item was used. fromBot also covers the online friend's replayed moves. */
+      function useItem(p, k, fromBot) {
+        if (!fromBot && !canAct(p)) return false;
         const it = S.inv[p][k], who = names[p];
-        if (it === 'tape' && S.hp[p] >= S.max) { if (!fromBot) toast('Your pages are all intact.'); return; }
-        if (it === 'fold' && S.fold) { if (!fromBot) toast('Already folded.'); return; }
-        if (it === 'clip' && S.skip[1 - p]) { if (!fromBot) toast('They are already clipped.'); return; }
-        if (it === 'rubber' && S.shells.length < 2) { if (!fromBot) toast("You can't rub out the last wad."); return; }
+        if (!it) return false;
+        if (it === 'tape' && S.hp[p] >= S.max) { if (!fromBot) toast('Your pages are all intact.'); return false; }
+        if (it === 'fold' && S.fold) { if (!fromBot) toast('Already folded.'); return false; }
+        if (it === 'clip' && S.skip[1 - p]) { if (!fromBot) toast('They are already clipped.'); return false; }
+        if (it === 'rubber' && S.shells.length < 2) { if (!fromBot) toast("You can't rub out the last wad."); return false; }
         S.inv[p].splice(k, 1); Sfx.tap();
         if (it === 'lens') { S.known[p][0] = S.shells[0]; say(`${who} squints through the magnifier${human(p) ? `: it's ${S.shells[0] ? 'INK' : 'blank'}.` : '. Hmm.'}`); }
         if (it === 'fold') { S.fold = true; say(`${who} folds the wad twice. The next ink hit costs 2 pages.`); }
@@ -98,9 +126,10 @@ Games.register({
         if (it === 'flip') { S.shells[0] = 1 - S.shells[0]; S.known.forEach(k => { if (k[0] != null) k[0] = 1 - k[0]; }); say(`${who} dabs correction fluid on the next wad. Something changed.`); }
         if (it === 'note') {
           if (S.shells.length < 2) say(`${who} reads a note from Mum: "Eat your vegetables." Useless.`);
-          else { const i = 1 + rand(S.shells.length - 1); S.known[p][i] = S.shells[i]; say(`${who} reads a note from Mum${human(p) ? `: wad #${i + 1} is ${S.shells[i] ? 'INK' : 'blank'}.` : '.'}`); }
+          else { const i = 1 + rnd(S.shells.length - 1); S.known[p][i] = S.shells[i]; say(`${who} reads a note from Mum${human(p) ? `: wad #${i + 1} is ${S.shells[i] ? 'INK' : 'blank'}.` : '.'}`); }
         }
         draw();
+        return true;
       }
       const shiftKnown = k => { const n = {}; for (const i in k) if (+i > 0) n[+i - 1] = k[i]; Object.keys(k).forEach(i => delete k[i]); Object.assign(k, n); };
 
@@ -139,21 +168,35 @@ Games.register({
         say(`${names[1 - w]} is out of pages. ${names[w]} takes round ${roundIx + 1}.`, 'bt-room');
         await wait(1200);
         if (mode === 'bot' && w === 1) return finish(1);
-        if (roundIx === 2 || (mode === 'duel' && Math.max(...wins) === 2)) return finish(wins[0] > wins[1] ? 0 : 1);
+        if (roundIx === 2 || (mode !== 'bot' && Math.max(...wins) === 2)) return finish(wins[0] > wins[1] ? 0 : 1);
         roundIx++;
-        acts.replaceChildren(el('button', { class: 'btn btn-primary', onclick: () => { newRound(); draw(); maybeBot(); } }, `On to round ${roundIx + 1}`));
+        const startNext = () => { newRound(); draw(); maybeBot(); };
+        const nextBtn = el('button', { class: 'btn btn-primary', onclick: () => {
+          if (!online) return startNext();
+          if (!link?.open) return;
+          nextBtn.disabled = true; nextBtn.textContent = 'Waiting for your friend...';
+          link.ready(startNext);
+        } }, `On to round ${roundIx + 1}`);
+        acts.replaceChildren(nextBtn);
       }
       function finish(w) {
-        Stats.record('roulette', { win: mode === 'bot' ? w === 0 : undefined, score: mode === 'bot' ? roundIx + (w === 0 ? 1 : 0) : undefined });
-        (mode === 'duel' || w === 0) ? (Sfx.win(), celebrate(40)) : Sfx.lose();
-        const title = mode === 'bot' ? (w === 0 ? 'You passed!' : 'Failed.') : `${names[w]} wins!`;
+        Stats.record('roulette', { win: mode !== 'duel' ? w === me : undefined, score: mode === 'bot' ? roundIx + (w === 0 ? 1 : 0) : undefined });
+        (mode === 'duel' || w === me) ? (Sfx.win(), celebrate(40)) : Sfx.lose();
+        const title = mode === 'bot' ? (w === 0 ? 'You passed!' : 'Failed.') : online ? (w === me ? 'You win!' : 'Friend wins') : `${names[w]} wins!`;
         say(mode === 'bot' && w === 1 ? `The Examiner stamps your paper: FAIL. You reached round ${roundIx + 1}.` : title, 'bt-room');
-        acts.replaceChildren(el('button', { class: 'btn btn-primary', onclick: game }, 'Sit the exam again'));
-        modal(title, mode === 'bot' ? (w === 0 ? 'Three rounds survived. The Examiner grudgingly hands you an A*.' : `You made it to round ${roundIx + 1} of 3.`) : `${wins[0]} – ${wins[1]}`, [{ label: 'OK', primary: true }]);
+        const again = el('button', { class: 'btn btn-primary', onclick: () => {
+          if (!online) return game();
+          if (!link?.open) return;
+          again.disabled = true; again.textContent = 'Waiting for your friend...';
+          link.ready(game);
+        } }, online ? 'Play again' : 'Sit the exam again');
+        acts.replaceChildren(again);
+        modal(title, mode === 'bot' ? (w === 0 ? 'Three rounds survived. The Examiner grudgingly hands you an A*.' : `You made it to round ${roundIx + 1} of 3.`) : online ? `You ${wins[me]} – Friend ${wins[1 - me]}` : `${wins[0]} – ${wins[1]}`, [{ label: 'OK', primary: true }]);
       }
 
       /** The Examiner: uses what it knows, plays the odds otherwise. */
       async function maybeBot() {
+        if (mode === 'online') return pump();
         if (mode !== 'bot' || S.turn !== 1 || S.over || S.busy) return;
         S.busy = true; draw();
         try {
