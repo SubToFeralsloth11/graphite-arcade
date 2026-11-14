@@ -25,7 +25,7 @@
     const hero = el('section', { class: 'hero' },
       el('div', {},
         el('h1', {}, el('span', { class: 'scribble-u' }, pick(GREETINGS))),
-        el('p', {}, `${Games.list.length} pencil-and-paper games with bots, daily puzzles, and pass-the-device modes for two.`),
+        el('p', {}, `${Games.list.length} pencil-and-paper games with bots, daily puzzles, and two-player modes on one device or online with a room code.`),
         el('div', { class: 'row hero-actions' },
           el('button', { class: 'btn btn-primary', onclick: () => { Sfx.scratch(); location.hash = '#/' + pick(Games.list).id; } }, 'Surprise me'),
           total ? el('span', { class: 'muted' }, `${total} games played so far`) : null)),
