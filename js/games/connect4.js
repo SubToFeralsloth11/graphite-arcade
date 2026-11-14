@@ -3,16 +3,16 @@ Games.register({
   title: 'Four in a Row',
   blurb: 'Drop pencil-shaded discs and line up four before the bot does.',
   group: 'table',
-  tags: ['vs bot', '2P', 'strategy'],
+  tags: ['vs bot', '2P', 'online', 'strategy'],
   icon: `<svg viewBox="0 0 120 80" class="doodle"><path d="M14 8 V72 H106 V8"/><circle cx="30" cy="60" r="8" class="fill"/><circle cx="50" cy="60" r="8"/><circle cx="50" cy="40" r="8" class="fill"/><circle cx="70" cy="60" r="8" class="fill"/><circle cx="70" cy="40" r="8"/><circle cx="70" cy="20" r="8" class="fill"/><circle cx="90" cy="60" r="8"/></svg>`,
-  help: 'Click a column to drop a disc; it falls to the lowest free spot. Four of yours in a line (across, down or diagonal) wins. Solid discs are player one, hatched discs are player two.',
+  help: 'Click a column to drop a disc; it falls to the lowest free spot. Four of yours in a line (across, down or diagonal) wins. Solid discs are player one, hatched discs are player two. Online: host a room and share the 4-letter code; the starter alternates each round.',
   mount(root, signal) {
     const R = 6, C = 7;
-    let mode = 'bot', level = 'med', first = 0;
+    let mode = 'bot', level = 'med', first = 0, link = null;
     const stage = el('div', { class: 'stage' });
     const lvlTabs = tabs([['easy', 'Casual'], ['med', 'Sharp'], ['hard', 'Grandmaster']], level, l => { level = l; start(); });
     root.append(el('div', { class: 'center' }, el('div', { class: 'row' },
-      tabs([['bot', 'Vs Bot'], ['duel', 'Pass & Play']], mode, m => { mode = m; lvlTabs.style.display = m === 'bot' ? '' : 'none'; start(); }), lvlTabs)), stage);
+      tabs([['bot', 'Vs Bot'], ['duel', 'Pass & Play'], ['online', 'Online']], mode, m => { mode = m; first = 0; if (link) { link.close(); link = null; } lvlTabs.style.display = m === 'bot' ? '' : 'none'; start(); }), lvlTabs)), stage);
 
     const WIN = [];
     for (let r = 0; r < R; r++) for (let c = 0; c < C; c++)
@@ -64,9 +64,12 @@ Games.register({
     }
 
     function start() {
+      if (mode === 'online' && !link?.open) {
+        return Net.lobby(stage, 'connect4', signal, l => { link = l; first = 0; link.onClose = () => { link = null; start(); }; start(); });
+      }
       const b = Array(R * C).fill(null);
       let turn = first, over = false, busy = false;
-      const names = mode === 'bot' ? ['You', 'Bot'] : ['Player 1', 'Player 2'];
+      const names = mode === 'bot' ? ['You', 'Bot'] : mode === 'online' ? (link.me === 0 ? ['You', 'Friend'] : ['Friend', 'You']) : ['Player 1', 'Player 2'];
       const P = names.map(n => el('div', { class: 'player sk' }, el('div', { class: 'who' }, n), el('div', { class: 'pts c4-key' })));
       P[0].lastChild.append(el('span', { class: 'c4-disc p0' })); P[1].lastChild.append(el('span', { class: 'c4-disc p1' }));
       const msg = el('div', { class: 'msg' });
@@ -75,7 +78,7 @@ Games.register({
       stage.replaceChildren(el('div', { class: 'center' }, el('div', { class: 'scoreboard' }, P), msg, grid));
       const sync = () => {
         P.forEach((p, i) => p.classList.toggle('turn', i === turn && !over));
-        if (!over) msg.textContent = mode === 'bot' ? (turn === 0 ? 'Your move' : 'Bot is thinking...') : `${names[turn]} to move`;
+        if (!over) msg.textContent = mode === 'bot' ? (turn === 0 ? 'Your move' : 'Bot is thinking...') : mode === 'online' ? (turn === link.me ? 'Your move' : 'Friend is thinking...') : `${names[turn]} to move`;
       };
       function drop(c) {
         const r = rowFor(b, c); if (r < 0) return;
@@ -87,7 +90,12 @@ Games.register({
         turn = 1 - turn; sync();
         if (mode === 'bot' && turn === 1) bot();
       }
-      function human(c) { if (!over && !busy && !(mode === 'bot' && turn === 1)) drop(c); }
+      function human(c) {
+        if (over || busy || (mode === 'bot' && turn === 1) || (mode === 'online' && turn !== link.me) || rowFor(b, c) < 0) return;
+        if (mode === 'online') link.send('move', c);
+        drop(c);
+      }
+      if (mode === 'online') link.on('move', c => { if (!over && turn !== link.me) drop(c); });
       async function bot() {
         busy = true; sync();
         await sleep(450);
@@ -98,11 +106,18 @@ Games.register({
       function end(w) {
         sync();
         first = 1 - first;
-        const title = w == null ? 'Board full, a draw' : mode === 'bot' ? (w === 0 ? 'You win!' : 'Bot wins') : `${names[w]} wins!`;
-        Stats.record('connect4', { win: mode === 'bot' && w != null ? w === 0 : undefined });
-        (w === 0 || (mode === 'duel' && w != null)) ? (Sfx.win(), celebrate()) : w === 1 ? Sfx.lose() : Sfx.tap();
+        const me = mode === 'online' ? link.me : 0;
+        const title = w == null ? 'Board full, a draw' : mode === 'bot' ? (w === 0 ? 'You win!' : 'Bot wins') : mode === 'online' ? (w === me ? 'You win!' : 'Friend wins') : `${names[w]} wins!`;
+        Stats.record('connect4', { win: mode !== 'duel' && w != null ? w === me : undefined });
+        (w === me || (mode === 'duel' && w != null)) ? (Sfx.win(), celebrate()) : w != null ? Sfx.lose() : Sfx.tap();
         msg.textContent = title;
-        setTimeout(() => !signal.aborted && modal(title, el('p', {}, w == null ? 'Nobody connected four.' : 'Four in a row.'), [{ label: 'Play again', primary: true }]).then(v => v && start()), 700);
+        const body = () => el('p', {}, w == null ? 'Nobody connected four.' : 'Four in a row.');
+        if (mode === 'online') {
+          setTimeout(() => !signal.aborted && link?.open && modal(title, body(), [{ label: 'Play again', primary: true }])
+            .then(() => { if (link?.open) { msg.textContent = 'Waiting for your friend...'; link.ready(start); } }), 700);
+          return;
+        }
+        setTimeout(() => !signal.aborted && modal(title, body(), [{ label: 'Play again', primary: true }]).then(v => v && start()), 700);
       }
       sync();
       if (mode === 'bot' && turn === 1) bot();
