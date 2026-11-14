@@ -52,7 +52,7 @@ Games.register({
           el('div', { class: 'big' }, 'Choose a ghost'),
           el('button', { class: 'btn', style: 'width:100%', onclick: () => play(['You', 'Casper (easy)'], 'easy') }, 'Casper: friendly, a bit random'),
           el('button', { class: 'btn', style: 'width:100%', onclick: () => play(['You', 'Banshee (hard)'], 'hard') }, 'Banshee: counts every letter')));
-      } else if (mode === 'online') play(link.me === 0 ? ['You', 'Friend'] : ['Friend', 'You'], null);
+      } else if (mode === 'online') play(link.me === 0 ? ['Player 1 (you)', 'Player 2 (friend)'] : ['Player 1 (friend)', 'Player 2 (you)'], null);
       else play(['Player 1', 'Player 2'], null);
     }
 

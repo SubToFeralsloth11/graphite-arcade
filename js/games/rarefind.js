@@ -63,7 +63,7 @@ Games.register({
         timer.textContent = `${names[who]} · ${left}s`;
         body.replaceChildren(el('div', { class: 'muted' }, `Round ${round + 1}/5`), el('div', { class: 'big' }, theme), timer,
           el('form', { class: 'row', onsubmit: e => { e.preventDefault(); if (input.value.trim()) fin(input.value); } }, input, el('button', { class: 'btn btn-primary' }, 'Lock in')),
-          secret ? el('div', { class: 'muted' }, 'Hidden so the other player cannot copy.') : null);
+          ...(secret ? [el('div', { class: 'muted' }, 'Hidden so the other player cannot copy.')] : []));
         input.focus();
       });
       const botAnswer = (list, theme) => {

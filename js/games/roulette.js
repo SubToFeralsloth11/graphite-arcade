@@ -30,7 +30,7 @@ Games.register({
       const rng = online ? seeded(link.seed + games++) : Math.random;
       const rnd = n => Math.floor(rng() * n);
       const queue = []; // friend's actions that arrived while an animation was still running here
-      const names = mode === 'bot' ? ['The Student (you)', 'The Examiner'] : online ? (me === 0 ? ['You', 'Friend'] : ['Friend', 'You']) : ['Player 1', 'Player 2'];
+      const names = mode === 'bot' ? ['The Student (you)', 'The Examiner'] : online ? (me === 0 ? ['Player 1 (you)', 'Player 2 (friend)'] : ['Player 1 (friend)', 'Player 2 (you)']) : ['Player 1', 'Player 2'];
       let roundIx = 0, wins = [0, 0];
       const top = el('div', { class: 'scoreboard' });
       const tube = el('div', { class: 'row', style: 'gap:6px;min-height:40px;justify-content:center' });
@@ -73,15 +73,15 @@ Games.register({
         const r = remaining();
         tube.replaceChildren(el('span', { class: 'muted' }, `tube: ${r.live} ink · ${r.blank} blank`),
           ...S.shells.map((x, i) => el('span', { class: 'bt-slot', style: 'width:28px;height:28px;font-size:16px' }, S.known[viewer][i] == null ? '?' : S.known[viewer][i] ? '●' : '○')),
-          S.fold ? el('span', { class: 'chip' }, 'double fold!') : null);
+          ...(S.fold ? [el('span', { class: 'chip' }, 'double fold!')] : []));
         items.forEach((box, p) => {
           const mine = mode === 'duel' ? p === S.turn : p === me;
           box.replaceChildren(el('span', { class: 'muted', style: 'min-width:120px' }, `${names[p]}'s pencil case:`),
             ...(S.inv[p].length ? S.inv[p].map((it, k) => el('button', { class: 'btn btn-ghost', title: ITEMS[it].desc, disabled: !mine || !canAct(p), onclick: () => { if (useItem(p, k) && online) link.send('item', k); } }, `${ITEMS[it].icon} ${ITEMS[it].name}`)) : [el('span', { class: 'muted' }, 'empty')]));
         });
         const p = S.turn, other = 1 - p;
-        acts.replaceChildren(...(S.over ? [] : [
-          el('button', { class: 'btn btn-primary', disabled: !canAct(p) || !human(p), onclick: () => act(p, other) }, `Flick at ${mode === 'bot' && other === 1 ? 'the Examiner' : names[other]}`),
+        acts.replaceChildren(...(S.over ? [] : online && p !== me ? [el('span', { class: 'muted' }, 'Friend is deciding...')] : [
+          el('button', { class: 'btn btn-primary', disabled: !canAct(p) || !human(p), onclick: () => act(p, other) }, `Flick at ${mode === 'bot' && other === 1 ? 'the Examiner' : online ? 'your friend' : names[other]}`),
           el('button', { class: 'btn', disabled: !canAct(p) || !human(p), onclick: () => act(p, p) }, 'Flick at yourself')]));
       }
       const human = p => mode === 'duel' || p === me;
