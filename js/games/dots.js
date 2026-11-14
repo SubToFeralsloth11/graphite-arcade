@@ -3,18 +3,32 @@ Games.register({
   title: 'Dots & Boxes',
   blurb: 'The notebook-margin classic. Close a box, claim it, go again.',
   group: 'table',
-  tags: ['vs bot', '2P', 'strategy'],
+  tags: ['vs bot', '2P', 'online', 'strategy'],
   icon: `<svg viewBox="0 0 120 80" class="doodle"><g class="fill" stroke="none"><circle cx="20" cy="12" r="3.5"/><circle cx="50" cy="12" r="3.5"/><circle cx="80" cy="12" r="3.5"/><circle cx="20" cy="42" r="3.5"/><circle cx="50" cy="42" r="3.5"/><circle cx="80" cy="42" r="3.5"/><circle cx="20" cy="72" r="3.5"/><circle cx="50" cy="72" r="3.5"/><circle cx="80" cy="72" r="3.5"/></g><path d="M20 12 H50 V42 H20 Z M50 42 H80 M80 42 V72"/><path d="M26 34 l18 -16 M26 24 l10 -8 M34 36 l10 -9" opacity=".7"/><path d="M96 50 l14 -14" /></svg>`,
-  help: 'Take turns drawing a line between two neighbouring dots. Close the fourth side of a box and it is yours, and you move again. Most boxes wins. Tip: avoid drawing the third side of a box; that hands it to your opponent.',
+  help: 'Take turns drawing a line between two neighbouring dots. Close the fourth side of a box and it is yours, and you move again. Most boxes wins. Tip: avoid drawing the third side of a box; that hands it to your opponent. Online: the host picks the board size; the starter alternates each round.',
   mount(root, signal) {
-    let mode = 'bot', size = 4;
+    let mode = 'bot', size = 4, link = null, first = 0;
     const stage = el('div', { class: 'stage' });
-    const sizeSel = el('select', { class: 'btn btn-ghost', onchange: e => { size = +e.target.value; start(); } },
+    const sizeSel = el('select', { class: 'btn btn-ghost', onchange: e => { size = +e.target.value; if (mode === 'online' && link?.open) toast('New size applies from the next round'); else start(); } },
       [3, 4, 5, 6].map(n => el('option', { value: n, selected: n === size }, `${n} x ${n} boxes`)));
-    root.append(el('div', { class: 'center' }, el('div', { class: 'row' }, tabs([['bot', 'Vs Bot'], ['duel', 'Pass & Play']], mode, m => { mode = m; start(); }), sizeSel)), stage);
+    root.append(el('div', { class: 'center' }, el('div', { class: 'row' }, tabs([['bot', 'Vs Bot'], ['duel', 'Pass & Play'], ['online', 'Online']], mode, m => { mode = m; first = 0; if (link) { link.close(); link = null; } start(); }), sizeSel)), stage);
 
     function start() {
-      const N = size, names = mode === 'bot' ? ['You', 'Bot'] : ['Player 1', 'Player 2'];
+      sizeSel.disabled = false;
+      if (mode === 'online') {
+        if (!link?.open) return Net.lobby(stage, 'dots', signal, l => { link = l; first = 0; link.onClose = () => { link = null; start(); }; start(); });
+        // The host's board size wins; the guest waits for it before drawing.
+        if (link.host) link.send('size', size);
+        else {
+          sizeSel.disabled = true;
+          stage.replaceChildren(el('div', { class: 'center' }, el('div', { class: 'msg' }, 'Waiting for your friend...')));
+          return link.on('size', n => { size = n; sizeSel.value = n; build(); });
+        }
+      }
+      build();
+    }
+    function build() {
+      const N = size, names = mode === 'bot' ? ['You', 'Bot'] : mode === 'online' ? (link.me === 0 ? ['You', 'Friend'] : ['Friend', 'You']) : ['Player 1', 'Player 2'];
       const lines = new Map(); // key -> owner
       const boxes = new Map(); // "r,c" -> owner
       const all = [];
@@ -23,7 +37,7 @@ Games.register({
       const sides = (r, c) => [`h,${r},${c}`, `h,${r + 1},${c}`, `v,${r},${c}`, `v,${r},${c + 1}`];
       const boxesOf = k => { const [t, r, c] = k.split(','), R = +r, C = +c; return (t === 'h' ? [[R - 1, C], [R, C]] : [[R, C - 1], [R, C]]).filter(([a, b]) => a >= 0 && b >= 0 && a < N && b < N); };
       const count = (set, r, c) => sides(r, c).filter(s => set.has(s)).length;
-      let turn = 0, last = null, busy = false, score = [0, 0];
+      let turn = mode === 'online' ? first : 0, last = null, busy = false, score = [0, 0];
 
       const G = 60, PAD = 30, W = PAD * 2 + G * N;
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -54,7 +68,7 @@ Games.register({
           <pattern id="hp0" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#2d2d31" stroke-width="2.2" opacity=".55"/></pattern>
           <pattern id="hp1" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0 0 L8 8 M8 0 L0 8" stroke="#4f4f56" stroke-width="1.2" opacity=".5"/></pattern></defs>${s}`;
         P.forEach((p, i) => { p.classList.toggle('turn', i === turn); p.lastChild.textContent = score[i]; });
-        msg.textContent = boxes.size === N * N ? '' : mode === 'bot' && turn === 1 ? 'Bot is thinking...' : mode === 'bot' ? 'Your move' : `${names[turn]}'s move`;
+        msg.textContent = boxes.size === N * N ? '' : mode === 'bot' && turn === 1 ? 'Bot is thinking...' : mode === 'bot' ? 'Your move' : mode === 'online' ? (turn === link.me ? 'Your move' : 'Friend is thinking...') : `${names[turn]}'s move`;
       }
 
       function play(k) {
@@ -97,18 +111,27 @@ Games.register({
         return best;
       }
       function finish() {
-        const [a, b] = score, tie = a === b, w = a > b ? 0 : 1;
-        const s = Stats.record('dots', { win: mode === 'bot' ? (tie ? undefined : w === 0) : undefined });
-        (mode === 'duel' || (!tie && w === 0)) ? (Sfx.win(), celebrate()) : Sfx.lose();
-        setTimeout(() => modal(tie ? 'Dead even' : `${names[w]} ${w === 0 && mode === 'bot' ? 'win' : 'wins'}!`, el('div', {}, el('p', {}, `${a} boxes to ${b}.`), mode === 'bot' ? statRow(s) : null),
-          [{ label: 'New board', primary: true }]).then(v => v && start()), 500);
+        const [a, b] = score, tie = a === b, w = a > b ? 0 : 1, me = mode === 'online' ? link.me : 0;
+        const s = Stats.record('dots', { win: mode !== 'duel' ? (tie ? undefined : w === me) : undefined });
+        (mode === 'duel' || (!tie && w === me)) ? (Sfx.win(), celebrate()) : tie ? Sfx.tap() : Sfx.lose();
+        const title = tie ? 'Dead even' : mode === 'online' ? (w === me ? 'You win!' : 'Friend wins!') : `${names[w]} ${w === 0 && mode === 'bot' ? 'win' : 'wins'}!`;
+        const body = () => el('div', {}, el('p', {}, `${a} boxes to ${b}.`), mode !== 'duel' ? statRow(s) : null);
+        if (mode === 'online') {
+          first = 1 - first;
+          setTimeout(() => !signal.aborted && link?.open && modal(title, body(), [{ label: 'New board', primary: true }])
+            .then(() => { if (link?.open) { msg.textContent = 'Waiting for your friend...'; link.ready(start); } }), 500);
+          return;
+        }
+        setTimeout(() => modal(title, body(), [{ label: 'New board', primary: true }]).then(v => v && start()), 500);
       }
 
       svg.addEventListener('click', e => {
         const k = e.target.dataset?.k;
-        if (!k || busy || (mode === 'bot' && turn === 1)) return;
+        if (!k || busy || lines.has(k) || boxes.size === N * N || (mode === 'bot' && turn === 1) || (mode === 'online' && turn !== link.me)) return;
+        if (mode === 'online') link.send('line', k);
         play(k);
       });
+      if (mode === 'online') link.on('line', k => { if (turn !== link.me && boxes.size < N * N) play(k); });
       render();
     }
     start();
