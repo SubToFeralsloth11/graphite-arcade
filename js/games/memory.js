@@ -3,15 +3,15 @@ Games.register({
   title: 'Doodle Memory',
   blurb: 'Flip the sketch cards and find every matching pair.',
   group: 'table',
-  tags: ['solo', '2P', 'chill'],
+  tags: ['solo', '2P', 'online', 'chill'],
   icon: `<svg viewBox="0 0 120 80" class="doodle"><rect x="14" y="10" width="36" height="52" transform="rotate(-8 32 36)" class="fill"/><rect x="62" y="12" width="36" height="52" transform="rotate(7 80 38)"/><path d="M72 38 l8 -12 l8 12 z"/><path d="M80 44 v10"/><path d="M104 70 c4 -6 10 -6 12 0"/></svg>`,
-  help: 'Flip two cards per turn. Find a match and they stay face up. Solo: finish in as few flips as you can. Pass & Play: a match earns a point and another turn; the most pairs wins.',
+  help: 'Flip two cards per turn. Find a match and they stay face up. Solo: finish in as few flips as you can. Pass & Play: a match earns a point and another turn; the most pairs wins. Online: same rules on two devices; the host shuffles and picks the board size, and the starter alternates.',
   mount(root, signal) {
-    let mode = 'solo', level = 8;
+    let mode = 'solo', level = 8, link = null, first = 0;
     const stage = el('div', { class: 'stage' });
     root.append(el('div', { class: 'center' }, el('div', { class: 'row' },
-      tabs([['solo', 'Solo'], ['duel', 'Pass & Play']], mode, m => { mode = m; start(); }),
-      tabs([[6, 'Small'], [8, 'Classic'], [10, 'Big']], level, l => { level = l; start(); })), stage));
+      tabs([['solo', 'Solo'], ['duel', 'Pass & Play'], ['online', 'Online']], mode, m => { mode = m; first = 0; if (link) { link.close(); link = null; } start(); }),
+      tabs([[6, 'Small'], [8, 'Classic'], [10, 'Big']], level, l => { level = l; if (mode === 'online' && link?.open) toast('New size applies from the next round'); else start(); })), stage));
 
     const D = {
       sun: '<circle cx="50" cy="50" r="16"/><path d="M50 18 v-10 M50 82 v10 M18 50 h-10 M82 50 h10 M27 27 l-7 -7 M73 73 l7 7 M73 27 l7 -7 M27 73 l-7 7"/>',
@@ -32,19 +32,28 @@ Games.register({
       apple: '<path d="M50 32 C30 20 14 40 22 62 C30 86 46 84 50 78 C54 84 70 86 78 62 C86 40 70 20 50 32 Z M50 32 C50 22 54 16 60 12"/><path d="M52 22 c8 -8 16 -4 18 -2 c-8 6 -14 4 -18 2"/>',
     };
 
+    const newDeck = () => { const kinds = shuffle(Object.keys(D)).slice(0, level); return shuffle([...kinds, ...kinds]); };
     function start() {
-      const kinds = shuffle(Object.keys(D)).slice(0, level);
-      const deck = shuffle([...kinds, ...kinds]);
-      const names = mode === 'solo' ? null : ['Player 1', 'Player 2'];
+      if (mode !== 'online') return build(newDeck());
+      if (!link?.open) return Net.lobby(stage, 'memory', signal, l => { link = l; first = 0; link.onClose = () => { link = null; start(); }; start(); });
+      // The host shuffles; the guest waits for the exact same layout.
+      if (link.host) { const deck = newDeck(); link.send('deck', deck); return build(deck); }
+      stage.replaceChildren(el('div', { class: 'center' }, el('div', { class: 'msg' }, 'Waiting for your friend...')));
+      link.on('deck', deck => build(deck));
+    }
+    function build(deck) {
+      const level = deck.length / 2, online = mode === 'online', me = online ? link.me : 0;
+      const names = mode === 'solo' ? null : online ? (me === 0 ? ['You', 'Friend'] : ['Friend', 'You']) : ['Player 1', 'Player 2'];
       const score = [0, 0];
-      let open = [], flips = 0, matched = 0, turn = 0, lock = false;
+      let open = [], flips = 0, matched = 0, turn = online ? first : 0, lock = false;
+      let q = Promise.resolve(); // online: flips run one at a time, in the order they happened
       const t0 = Date.now();
       const cols = level === 6 ? 4 : level === 8 ? 4 : 5;
       const grid = el('div', { class: 'mem-grid', style: `grid-template-columns:repeat(${cols},1fr);max-width:${cols * 130}px` });
       const P = names && names.map(n => el('div', { class: 'player sk' }, el('div', { class: 'who' }, n), el('div', { class: 'pts' }, '0')));
       const info = el('div', { class: 'msg' });
       const cards = deck.map((kind, i) => {
-        const c = el('div', { class: 'mcard', onclick: () => flip(i) },
+        const c = el('div', { class: 'mcard', onclick: () => tap(i) },
           el('div', { class: 'face back sk' }),
           el('div', { class: 'face front sk', html: `<svg viewBox="0 0 100 100" class="doodle">${D[kind]}</svg>` }));
         return c;
@@ -53,10 +62,18 @@ Games.register({
       stage.replaceChildren(el('div', { class: 'center' }, P ? el('div', { class: 'scoreboard' }, P) : null, info, grid));
       const sync = () => {
         if (P) P.forEach((p, i) => { p.classList.toggle('turn', i === turn); p.lastChild.textContent = score[i]; });
-        info.textContent = names ? `${names[turn]}'s turn` : `${flips} flips · ${matched}/${level} pairs`;
+        info.textContent = online ? (turn === me ? 'Your turn' : "Friend's turn") : names ? `${names[turn]}'s turn` : `${flips} flips · ${matched}/${level} pairs`;
       };
+      const canFlip = i => !lock && !open.includes(i) && !cards[i].classList.contains('matched');
+      function tap(i) {
+        if (!online) return flip(i);
+        if (turn !== me || !canFlip(i)) return;
+        link.send('flip', i);
+        q = q.then(() => flip(i));
+      }
+      if (online) link.on('flip', i => { q = q.then(() => { if (turn !== me && matched < level) return flip(i); }); });
       async function flip(i) {
-        if (lock || open.includes(i) || cards[i].classList.contains('matched')) return;
+        if (!canFlip(i)) return;
         cards[i].classList.add('up'); Sfx.tap();
         open.push(i);
         if (open.length < 2) return;
@@ -77,12 +94,18 @@ Games.register({
       }
       function finish() {
         const secs = Math.round((Date.now() - t0) / 1000);
-        Sfx.win(); celebrate();
+        if (online && score[me] < score[1 - me]) Sfx.lose(); else { Sfx.win(); celebrate(); }
         if (!names) {
           const s = Stats.record('memory', { win: true, score: flips, best: 'low' });
           const perfect = flips === level;
           modal(s.newBest ? 'New record!' : perfect ? 'Photographic!' : 'All matched', el('div', {}, el('p', {}, `${flips} flips in ${secs}s (perfect would be ${level}).`), statRow(s, { best: 'fewest flips' })),
             [{ label: 'Shuffle again', primary: true }]).then(v => v && start());
+        } else if (online) {
+          const tie = score[0] === score[1], w = score[1] > score[0] ? 1 : 0;
+          Stats.record('memory', { win: tie ? undefined : w === me });
+          first = 1 - first;
+          modal(tie ? "It's a draw" : w === me ? 'You win!' : 'Friend wins', `${score[0]} pairs to ${score[1]}.`, [{ label: 'Rematch', primary: true }])
+            .then(() => { if (link?.open) { info.textContent = 'Waiting for your friend...'; link.ready(start); } });
         } else {
           Stats.record('memory', {});
           const tie = score[0] === score[1];
