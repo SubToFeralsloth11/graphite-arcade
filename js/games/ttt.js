@@ -7,11 +7,11 @@ Games.register({
   icon: `<svg viewBox="0 0 120 80" class="doodle"><path d="M46 6 V74 M74 6 V74 M22 30 H98 M22 52 H98"/><path d="M28 10 l12 14 M40 10 l-12 14"/><circle cx="60" cy="41" r="7"/><path d="M80 57 l12 13 M92 57 l-12 13"/></svg>`,
   help: 'Take turns marking squares. Three in a row (across, down or diagonal) wins. Vs Bot: Doodler makes mistakes, Perfect never loses. The score carries over between rounds and the starter alternates.',
   mount(root, signal) {
-    let mode = 'bot', level = 'easy', first = 0, tally = [0, 0];
+    let mode = 'bot', level = 'easy', first = 0, tally = [0, 0], link = null;
     const stage = el('div', { class: 'stage' });
     const lvlTabs = tabs([['easy', 'Doodler'], ['hard', 'Perfect']], level, l => { level = l; tally = [0, 0]; start(); });
     root.append(el('div', { class: 'center' }, el('div', { class: 'row' },
-      tabs([['bot', 'Vs Bot'], ['duel', 'Pass & Play']], mode, m => { mode = m; tally = [0, 0]; lvlTabs.style.display = m === 'bot' ? '' : 'none'; start(); }), lvlTabs)), stage);
+      tabs([['bot', 'Vs Bot'], ['duel', 'Pass & Play'], ['online', 'Online']], mode, m => { mode = m; tally = [0, 0]; first = 0; if (link) { link.close(); link = null; } lvlTabs.style.display = m === 'bot' ? '' : 'none'; start(); }), lvlTabs)), stage);
 
     const LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
     const winner = b => LINES.find(([a, c, d]) => b[a] != null && b[a] === b[c] && b[a] === b[d]) || null;
@@ -32,16 +32,19 @@ Games.register({
     const O = '<svg viewBox="0 0 100 100" class="doodle ink"><path d="M50 20 C70 19 82 34 80 52 C78 72 60 82 44 79 C26 76 18 60 21 44 C24 30 36 21 54 22"/></svg>';
 
     function start() {
+      if (mode === 'online' && !link?.open) {
+        return Net.lobby(stage, 'ttt', signal, l => { link = l; tally = [0, 0]; first = 0; link.onClose = () => { link = null; start(); }; start(); });
+      }
       const b = Array(9).fill(null);
       let turn = first, over = false, busy = false;
-      const names = mode === 'bot' ? ['You (X)', 'Bot (O)'] : ['Player X', 'Player O'];
+      const names = mode === 'bot' ? ['You (X)', 'Bot (O)'] : mode === 'online' ? (link.me === 0 ? ['You (X)', 'Friend (O)'] : ['Friend (X)', 'You (O)']) : ['Player X', 'Player O'];
       const P = names.map((n, i) => el('div', { class: 'player sk' }, el('div', { class: 'who' }, n), el('div', { class: 'pts' }, tally[i])));
       const msg = el('div', { class: 'msg' });
       const cells = Array.from({ length: 9 }, (_, i) => el('button', { class: 'ttt-cell', onclick: () => human(i) }));
       stage.replaceChildren(el('div', { class: 'center' }, el('div', { class: 'scoreboard' }, P), msg, el('div', { class: 'ttt-grid' }, cells)));
       const sync = () => {
         P.forEach((p, i) => p.classList.toggle('turn', i === turn && !over));
-        if (!over) msg.textContent = mode === 'bot' ? (turn === 0 ? 'Your move' : 'Bot is thinking...') : `${names[turn]} to move`;
+        if (!over) msg.textContent = mode === 'bot' ? (turn === 0 ? 'Your move' : 'Bot is thinking...') : mode === 'online' ? (turn === link.me ? 'Your move' : 'Friend is thinking...') : `${names[turn]} to move`;
       };
       function place(i) {
         b[i] = turn; cells[i].innerHTML = turn === 0 ? X : O; cells[i].disabled = true; Sfx.scratch();
@@ -51,7 +54,12 @@ Games.register({
         turn = 1 - turn; sync();
         if (mode === 'bot' && turn === 1) bot();
       }
-      function human(i) { if (!over && !busy && b[i] == null && !(mode === 'bot' && turn === 1)) place(i); }
+      function human(i) {
+        if (over || busy || b[i] != null || (mode === 'bot' && turn === 1) || (mode === 'online' && turn !== link.me)) return;
+        if (mode === 'online') link.send('move', i);
+        place(i);
+      }
+      if (mode === 'online') link.on('move', i => { if (!over && b[i] == null && turn !== link.me) place(i); });
       async function bot() {
         busy = true; sync();
         await sleep(350 + rand(350));
@@ -66,16 +74,22 @@ Games.register({
         P.forEach((p, i) => (p.lastChild.textContent = tally[i]));
         first = w == null ? 1 - first : 1 - w; // loser (or other player after a draw) starts next
         let title;
-        if (mode === 'bot') {
-          Stats.record('ttt', { win: w == null ? undefined : w === 0 });
-          title = w == null ? 'Cat\'s game' : w === 0 ? 'You win!' : 'Bot wins';
-          w === 0 ? (Sfx.win(), celebrate()) : w === 1 ? Sfx.lose() : Sfx.tap();
+        if (mode === 'bot' || mode === 'online') {
+          const me = mode === 'bot' ? 0 : link.me;
+          Stats.record('ttt', { win: w == null ? undefined : w === me });
+          title = w == null ? 'Cat\'s game' : w === me ? 'You win!' : mode === 'bot' ? 'Bot wins' : 'Friend wins';
+          w === me ? (Sfx.win(), celebrate()) : w != null ? Sfx.lose() : Sfx.tap();
         } else {
           Stats.record('ttt', {});
           title = w == null ? 'Cat\'s game' : `${names[w]} wins!`;
           w != null ? (Sfx.win(), celebrate()) : Sfx.tap();
         }
         msg.textContent = title;
+        if (mode === 'online') {
+          setTimeout(() => !signal.aborted && link?.open && modal(title, `Score: ${tally[0]} – ${tally[1]}`, [{ label: 'Next round', primary: true }])
+            .then(() => { if (link?.open) { msg.textContent = 'Waiting for your friend...'; link.ready(start); } }), 600);
+          return;
+        }
         setTimeout(() => !signal.aborted && modal(title, `Score: ${tally[0]} – ${tally[1]}`, [{ label: 'Next round', primary: true }]).then(v => v && start()), 600);
       }
       sync();
