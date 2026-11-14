@@ -128,7 +128,17 @@ const Dict = (() => {
   const lowerBound = p => { let lo = 0, hi = sorted.length; while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m] < p) lo = m + 1; else hi = m; } return lo; };
   return {
     sorted,
-    has: w => set.has(w.toLowerCase()),
+    has(w) {
+      w = w.toLowerCase();
+      if (set.has(w)) return true;
+      // plurals / 3rd-person: foods, boxes, berries, wolves, knives
+      if (w.length < 4 || !w.endsWith('s') || w.endsWith('ss')) return false;
+      if (set.has(w.slice(0, -1))) return true;
+      if (w.endsWith('es') && set.has(w.slice(0, -2))) return true;
+      if (w.endsWith('ies') && set.has(w.slice(0, -3) + 'y')) return true;
+      if (w.endsWith('ves')) { const s = w.slice(0, -3); return set.has(s + 'f') || set.has(s + 'fe'); }
+      return false;
+    },
     ofLen(n) { return byLen[n] || (byLen[n] = sorted.filter(w => w.length === n)); },
     /** [start, end) index range of words beginning with prefix p. */
     range(p) { const a = lowerBound(p); const b = lowerBound(p + '{'); return [a, b]; },
