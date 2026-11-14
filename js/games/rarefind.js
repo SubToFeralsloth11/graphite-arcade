@@ -3,9 +3,9 @@ Games.register({
   title: 'Rare Find',
   blurb: 'You get a theme, you name one thing. Obvious answers score little; obscure ones score big.',
   group: 'button',
-  tags: ['vs bot', '2P', 'text'],
+  tags: ['vs bot', '2P', 'text', 'online'],
   icon: `<svg viewBox="0 0 120 80" class="doodle"><path d="M40 20 h40 l14 16 l-34 36 l-34 -36 z M26 36 h68 M50 20 l-6 16 l16 36 l16 -36 l-6 -16"/><path d="M100 12 l3 6 l6 1 l-5 4 l1 6 l-5 -3 l-5 3 l1 -6 l-5 -4 l6 -1 z"/></svg>`,
-  help: 'Each round shows a theme (like "Fruits"). Type one thing that fits and press Enter, within 20 seconds. Points depend on how rare the answer is: the first thing everyone thinks of scores 1, deep cuts score up to 10. Words the judges do not know for that theme score 0, and so does repeating a word you already used. In 2P, if both players give the same answer, both score 0. Five rounds.',
+  help: 'Each round shows a theme (like "Fruits"). Type one thing that fits and press Enter, within 20 seconds. Points depend on how rare the answer is: the first thing everyone thinks of scores 1, deep cuts score up to 10. Words the judges do not know for that theme score 0, and so does repeating a word you already used. In 2P, if both players give the same answer, both score 0. Online: you and a friend answer at the same time on your own devices; answers are revealed once both are in. Five rounds.',
   mount(root, signal) {
     // Each list runs roughly from most to least commonly given.
     const THEMES = {
@@ -30,16 +30,24 @@ Games.register({
       for (const s of [w.replace(/ies$/, 'y'), w.replace(/es$/, ''), w.replace(/s$/, '')]) if (list.includes(s)) return s;
       return w;
     };
-    let mode = 'bot', level = 'mid';
+    let mode = 'bot', level = 'mid', link = null, games = 0;
     const stage = el('div', { class: 'stage' });
     const lvl = tabs([['easy', 'Plain bot'], ['mid', 'Clever bot'], ['hard', 'Know-it-all']], level, l => { level = l; start(); });
-    root.append(el('div', { class: 'center' }, el('div', { class: 'row' }, tabs([['bot', 'Vs Bot'], ['duel', 'Pass & Play']], mode, m => { mode = m; lvl.style.display = m === 'bot' ? '' : 'none'; start(); }), lvl)), stage);
+    root.append(el('div', { class: 'center' }, el('div', { class: 'row' }, tabs([['bot', 'Vs Bot'], ['duel', 'Pass & Play'], ['online', 'Online']], mode, m => { mode = m; if (link) { link.close(); link = null; } lvl.style.display = m === 'bot' ? '' : 'none'; start(); }), lvl)), stage);
 
     function start() {
-      const names = mode === 'bot' ? ['You', 'Bot'] : ['Player 1', 'Player 2'];
-      const themes = shuffle(Object.keys(THEMES)).slice(0, 5);
+      if (mode === 'online' && !link?.open) {
+        return Net.lobby(stage, 'rarefind', signal, l => { link = l; games = 0; link.onClose = () => { link = null; start(); }; start(); });
+      }
+      const online = mode === 'online', me = online ? link.me : 0;
+      const names = mode === 'bot' ? ['You', 'Bot'] : online ? (me === 0 ? ['You', 'Friend'] : ['Friend', 'You']) : ['Player 1', 'Player 2'];
+      const themes = shuffle(Object.keys(THEMES), online ? seeded(link.seed + games++) : Math.random).slice(0, 5);
       const score = [0, 0], used = [new Set(), new Set()];
       let round = 0;
+      // Online: the friend's answer per round, plus a waiter if it has not arrived yet.
+      const got = {}, waiters = {};
+      const theirs = r => r in got ? Promise.resolve(got[r]) : new Promise(res => { waiters[r] = res; });
+      if (online) link.on('answer', ({ r, a }) => { got[r] = String(a || '').slice(0, 40); if (waiters[r]) waiters[r](got[r]); });
       const P = names.map(n => el('div', { class: 'player sk' }, el('div', { class: 'who' }, n), el('div', { class: 'pts' }, 0)));
       const body = el('div', { class: 'center' });
       stage.replaceChildren(el('div', { class: 'center' }, el('div', { class: 'scoreboard' }, P), body));
@@ -70,7 +78,13 @@ Games.register({
         const theme = themes[round], list = THEMES[theme];
         const raw = [];
         if (mode === 'bot') { raw[0] = await ask(0, theme, false); raw[1] = botAnswer(list, theme); }
-        else { await handoff(0); raw[0] = await ask(0, theme, true); await handoff(1); raw[1] = await ask(1, theme, true); }
+        else if (online) {
+          raw[me] = await ask(me, theme, false);
+          if (signal.aborted || !link?.open) return;
+          link.send('answer', { r: round, a: raw[me] });
+          if (!(round in got)) body.replaceChildren(el('div', { class: 'big' }, theme), el('div', { class: 'msg' }, 'Waiting for your friend to answer...'));
+          raw[1 - me] = await theirs(round);
+        } else { await handoff(0); raw[0] = await ask(0, theme, true); await handoff(1); raw[1] = await ask(1, theme, true); }
         if (signal.aborted) return;
         const ans = raw.map(r => norm(list, r || ''));
         const lines = ans.map((w, i) => {
@@ -87,17 +101,29 @@ Games.register({
         });
         sync();
         const deep = list.slice(-3).join(', ');
-        ans[0] && list.includes(ans[0]) ? Sfx.good() : Sfx.bad();
+        ans[me] && list.includes(ans[me]) ? Sfx.good() : Sfx.bad();
+        const advance = () => (++round < 5 ? play() : end());
+        const nextBtn = el('button', { class: 'btn btn-primary', onclick: () => {
+          if (!online) return advance();
+          if (!link?.open) return;
+          nextBtn.disabled = true; nextBtn.textContent = 'Waiting for your friend...';
+          link.ready(advance);
+        } }, round < 4 ? 'Next theme' : 'Final score');
         body.replaceChildren(el('div', { class: 'big' }, theme), el('div', { class: 'bt-pair' }, lines),
-          el('div', { class: 'muted' }, `Rarest the judges know: ${deep}`),
-          el('button', { class: 'btn btn-primary', onclick: () => (++round < 5 ? play() : end()) }, round < 4 ? 'Next theme' : 'Final score'));
+          el('div', { class: 'muted' }, `Rarest the judges know: ${deep}`), nextBtn);
       }
       function end() {
         const w = score[0] === score[1] ? null : score[0] > score[1] ? 0 : 1;
-        Stats.record('rarefind', { win: mode === 'bot' && w != null ? w === 0 : undefined, score: mode === 'bot' ? score[0] : undefined });
-        (w === 0 || (mode === 'duel' && w != null)) ? (Sfx.win(), celebrate()) : Sfx.lose();
-        body.replaceChildren(el('div', { class: 'big' }, w == null ? 'A tie!' : `${names[w]} win${w === 0 && mode === 'bot' ? '' : 's'}!`),
-          el('div', {}, `${score[0]} – ${score[1]}`), el('button', { class: 'btn btn-primary', onclick: start }, 'Play again'));
+        Stats.record('rarefind', { win: mode !== 'duel' && w != null ? w === me : undefined, score: mode === 'bot' ? score[0] : undefined });
+        (w === me || (mode === 'duel' && w != null)) ? (Sfx.win(), celebrate()) : Sfx.lose();
+        const again = el('button', { class: 'btn btn-primary', onclick: () => {
+          if (!online) return start();
+          if (!link?.open) return;
+          again.disabled = true; again.textContent = 'Waiting for your friend...';
+          link.ready(start);
+        } }, 'Play again');
+        body.replaceChildren(el('div', { class: 'big' }, w == null ? 'A tie!' : `${names[w]} win${w === me && mode !== 'duel' ? '' : 's'}!`),
+          el('div', {}, `${score[0]} – ${score[1]}`), again);
       }
       play();
     }
