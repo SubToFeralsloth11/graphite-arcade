@@ -3,24 +3,24 @@ Games.register({
   title: 'Scramble',
   blurb: 'Unjumble the letters before the clock (or the bot) beats you.',
   group: 'word',
-  tags: ['timed', 'vs bot', '2P'],
+  tags: ['timed', 'vs bot', '2P', 'online'],
   icon: `<svg viewBox="0 0 120 80" class="doodle"><rect x="8" y="24" width="22" height="22" transform="rotate(-10 19 35)"/><rect x="36" y="18" width="22" height="22" transform="rotate(8 47 29)"/><rect x="64" y="28" width="22" height="22" transform="rotate(-4 75 39)"/><rect x="92" y="20" width="22" height="22" transform="rotate(12 103 31)"/><path d="M20 62 c20 12 60 12 84 -2 l-6 -4 m6 4 l-8 3"/></svg>`,
-  help: 'Click tiles or type to spell the word. Any real word using all the letters counts. Solo: 90 seconds, longer words score more, a hint costs half the points. Vs Bot: first to 5 words wins the race. Pass & Play: each player gets a 60-second turn; most points wins.',
+  help: 'Click tiles or type to spell the word. Any real word using all the letters counts. Solo: 90 seconds, longer words score more, a hint costs half the points. Vs Bot: first to 5 words wins the race. Pass & Play: each player gets a 60-second turn; most points wins. Online: race a friend on another device through the same scrambles; first to solve each word takes the point, first to 5 wins.',
   mount(root, signal) {
-    let mode = 'solo', keyHandler = null, timers = [];
+    let mode = 'solo', keyHandler = null, timers = [], link = null, games = 0;
     const clear = () => { timers.forEach(clearInterval); timers.forEach(clearTimeout); timers = []; };
     signal.addEventListener('abort', clear);
     const stage = el('div', { class: 'stage' });
-    root.append(el('div', { class: 'center' }, tabs([['solo', 'Solo sprint'], ['bot', 'Race the bot'], ['duel', 'Pass & Play']], mode, m => { mode = m; start(); })), stage);
+    root.append(el('div', { class: 'center' }, tabs([['solo', 'Solo sprint'], ['bot', 'Race the bot'], ['duel', 'Pass & Play'], ['online', 'Online race']], mode, m => { mode = m; if (link) { link.close(); link = null; } start(); })), stage);
     onKeys(signal, k => keyHandler && keyHandler(k));
 
-    const scramble = w => { let s; do s = shuffle([...w]).join(''); while (s === w && new Set(w).size > 1); return s; };
-    const pool = () => shuffle(LISTS.long.concat(LISTS.five.filter((_, i) => i % 3 === 0)));
+    const scramble = (w, rng) => { let s; do s = shuffle([...w], rng).join(''); while (s === w && new Set(w).size > 1); return s; };
+    const pool = rng => shuffle(LISTS.long.concat(LISTS.five.filter((_, i) => i % 3 === 0)), rng);
     const pts = w => w.length * 10;
 
-    /** Renders one puzzle board. Calls onSolve(word, hintsUsed). */
-    function board(host, word, onSolve) {
-      let letters = [...scramble(word)].map((c, i) => ({ c, i, used: false }));
+    /** Renders one puzzle board. Calls onSolve(word, hintsUsed). rng (optional) fixes the scramble order. */
+    function board(host, word, onSolve, rng) {
+      let letters = [...scramble(word, rng)].map((c, i) => ({ c, i, used: false }));
       let built = [], hints = 0;
       const tilesEl = el('div', { class: 'scr-tiles' });
       const answerEl = el('div', { class: 'scr-tiles' });
@@ -73,8 +73,12 @@ Games.register({
 
     function start() {
       clear(); keyHandler = null;
+      if (mode === 'online' && !link?.open) {
+        return Net.lobby(stage, 'scramble', signal, l => { link = l; games = 0; link.onClose = () => { link = null; start(); }; start(); });
+      }
       if (mode === 'solo') solo();
       else if (mode === 'bot') botPick();
+      else if (mode === 'online') onlineRace();
       else duel();
     }
 
@@ -136,6 +140,46 @@ Games.register({
         const s = Stats.record('scramble', { win: won });
         won ? (Sfx.win(), celebrate()) : Sfx.lose();
         modal(won ? 'You win the race' : 'The bot wins', el('div', {}, el('p', {}, `${me} – ${bot}`), statRow(s, { best: 'high score' })), [{ label: 'Rematch', primary: true }]).then(v => v && start());
+      };
+      nextRound();
+    }
+
+    /** Online race: both sides get the same words and scrambles from a shared seed; the host referees who solved first. */
+    function onlineRace() {
+      const rng = seeded(link.seed + games++);
+      const words = pool(rng);
+      const score = [0, 0];
+      let round = 0, settled = true;
+      const names = link.me === 0 ? ['You', 'Friend'] : ['Friend', 'You'];
+      const P = names.map(n => el('div', { class: 'player sk' + (n === 'You' ? ' turn' : '') }, el('div', { class: 'who' }, n), el('div', { class: 'pts' }, '0')));
+      const msg = el('div', { class: 'msg' }, 'First to 5!');
+      const host = el('div');
+      stage.replaceChildren(el('div', { class: 'center' }, el('div', { class: 'scoreboard' }, P), msg, host));
+      const award = (p, w) => {
+        if (settled) return;
+        settled = true; keyHandler = null;
+        score[p]++; P[p].lastChild.textContent = score[p];
+        if (p === link.me) { Sfx.good(); msg.textContent = pick(['Nice!', 'Quick!', 'Got it!', 'Beat it!']); } else { Sfx.bad(); msg.textContent = `Friend got it: ${w.toUpperCase()}`; }
+        timers.push(setTimeout(() => { if (link?.open) link.ready(nextRound); }, 1000));
+      };
+      const nextRound = () => {
+        if (score[0] >= 5 || score[1] >= 5) return end();
+        const word = words[round++];
+        settled = false;
+        msg.textContent = 'First to 5!';
+        board(host, word, w => {
+          if (settled) return;
+          if (link.host) { link.send('point', { p: 0, w }); award(0, w); } else { link.send('claim', { r: round, w }); keyHandler = null; msg.textContent = 'Checking...'; }
+        }, rng);
+      };
+      if (link.host) link.on('claim', ({ r, w }) => { if (r === round && !settled) { link.send('point', { p: 1, w }); award(1, w); } });
+      else link.on('point', ({ p, w }) => award(p, w));
+      const end = () => {
+        const won = score[link.me] > score[1 - link.me];
+        Stats.record('scramble', { win: won });
+        won ? (Sfx.win(), celebrate()) : Sfx.lose();
+        if (link?.open) modal(won ? 'You win the race' : 'Friend wins the race', `You ${score[link.me]} – Friend ${score[1 - link.me]}`, [{ label: 'Rematch', primary: true }])
+          .then(() => { if (link?.open) { msg.textContent = 'Waiting for your friend...'; link.ready(start); } });
       };
       nextRound();
     }
